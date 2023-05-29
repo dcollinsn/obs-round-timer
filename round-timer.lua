@@ -5,6 +5,9 @@ stop_text     = ""
 mode          = ""
 a_mode        = ""
 format        = ""
+up_format     = ""
+up_color_1    = ""
+up_color_2    = ""
 activated     = false
 global        = false
 timer_active  = false
@@ -12,7 +15,7 @@ settings_     = nil
 orig_time     = 0
 cur_time      = 0
 cur_ns        = 0
-up_when_finished = false
+up_when_finished = true
 up            = false
 paused        = false
 switch_to_scene = false
@@ -44,6 +47,14 @@ function delta_time(year, month, day, hour, minute, second)
 	end
 
 	return seconds * 1000000000
+end
+
+function get_color_code(color)
+    local r = tonumber(color:sub(1,2),16)
+	local g = tonumber(color:sub(3,4),16)
+    local b = tonumber(color:sub(5,6),16)
+	local value = 255*256*256*256 + b*256*256 + g*256 + r
+	return value
 end
 
 function set_time_text(ns, text)
@@ -141,6 +152,15 @@ function set_time_text(ns, text)
 	if source ~= nil then
 		local settings = obs.obs_data_create()
 		obs.obs_data_set_string(settings, "text", text)
+		if up and up_color_1 then
+			if up_color_2 and ((ms/1000)%2) >= 1 then
+				obs.obs_data_set_int(settings, "color", get_color_code(up_color_2))
+			else
+				obs.obs_data_set_int(settings, "color", get_color_code(up_color_1))
+			end
+		else
+			obs.obs_data_set_int(settings, "color", get_color_code("FFFFFF"))
+		end
 		obs.obs_source_update(source, settings)
 		obs.obs_data_release(settings)
 		obs.obs_source_release(source)
@@ -206,7 +226,11 @@ function script_tick(sec)
 		end
 	end
 
-	set_time_text(cur_ns, format)
+	this_format = format
+	if up and up_format then
+		this_format = up_format
+	end
+	set_time_text(cur_ns, this_format)
 end
 
 function start_timer()
@@ -444,9 +468,14 @@ function script_properties()
 	obs.obs_properties_add_int(props, "hour", "Hour (0-24)", 0, 24, 1)
 	obs.obs_properties_add_int(props, "minutes", "Minutes (0-59)", 0, 59, 1)
 	obs.obs_properties_add_int(props, "seconds", "Seconds (0-59)", 0, 59, 1)
-	local f_prop = obs.obs_properties_add_text(props, "format", "Format", obs.OBS_TEXT_MULTILINE)
+	local f_prop = obs.obs_properties_add_text(props, "format", "Format", obs.OBS_TEXT_DEFAULT)
 	obs.obs_property_set_long_description(f_prop, "%d - days\n%0h - hours with leading zero (00..23)\n%h - hours (0..23)\n%0H - hours with leading zero (00..infinity)\n%H - hours (0..infinity)\n%0m - minutes with leading zero (00..59)\n%m - minutes (0..59)\n%0M - minutes with leading zero (00..infinity)\n%M - minutes (0..infinity)\n%0s - seconds with leading zero (00..59)\n%s - seconds (0..59)\n%0S - seconds with leading zero (00..infinity)\n%S - seconds (0..infinity)\n%t - tenths\n%2t - hundredths\n%3t - thousandths")
-
+	local f_up_prop = obs.obs_properties_add_text(props, "up_format", "Countup format", obs.OBS_TEXT_DEFAULT)
+	obs.obs_property_set_long_description(f_up_prop, "If countup is enabled, use a different format when counting up?")
+	
+	obs.obs_properties_add_text(props, "up_color_1", "Countup color 1", obs.OBS_TEXT_DEFAULT)
+	obs.obs_properties_add_text(props, "up_color_2", "Countup color 2", obs.OBS_TEXT_DEFAULT)
+	
 	local p = obs.obs_properties_add_list(props, "source", "Text source", obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
 	local sources = obs.obs_enum_sources()
 	if sources ~= nil then
@@ -506,6 +535,9 @@ function script_update(settings)
 	local minute = obs.obs_data_get_int(settings, "minutes")
 	local second = obs.obs_data_get_int(settings, "seconds")
 	format = obs.obs_data_get_string(settings, "format")
+	up_format = obs.obs_data_get_string(settings, "up_format")
+	up_color_1 = obs.obs_data_get_string(settings, "up_color_1")
+	up_color_2 = obs.obs_data_get_string(settings, "up_color_2")
 	up_when_finished = obs.obs_data_get_bool(settings, "countup_countdown_finished")
 	switch_to_scene = obs.obs_data_get_bool(settings, "switch_to_scene")
 	next_scene = obs.obs_data_get_string(settings, "next_scene")
@@ -528,7 +560,11 @@ function script_update(settings)
 		global = true
 	end
 
-	set_time_text(cur_time, format)
+	this_format = format
+	if up and up_format then
+		this_format = up_format
+	end
+	set_time_text(cur_time, this_format)
 
 	if global == false and paused == false then
 		start_timer()
@@ -541,10 +577,13 @@ function script_defaults(settings)
 	obs.obs_data_set_default_int(settings, "year", os.date("%Y", os.time()))
 	obs.obs_data_set_default_int(settings, "month", os.date("%m", os.time()))
 	obs.obs_data_set_default_int(settings, "day", os.date("%d", os.time()))
-	obs.obs_data_set_default_string(settings, "stop_text", "Starting soon (tm)")
+	obs.obs_data_set_default_string(settings, "stop_text", "")
 	obs.obs_data_set_default_string(settings, "mode", "Countdown")
 	obs.obs_data_set_default_string(settings, "a_mode", "Global (timer always active)")
-	obs.obs_data_set_default_string(settings, "format", "%0H:%0m:%0s")
+	obs.obs_data_set_default_string(settings, "format", "%0m:%0s")
+	obs.obs_data_set_default_string(settings, "up_format", "+%0m:%0s")
+	obs.obs_data_set_default_string(settings, "up_color_1", "FF0000")
+	obs.obs_data_set_default_string(settings, "up_color_2", "FFFFFF")
 end
 
 function script_save(settings)
